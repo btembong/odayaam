@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Kitchen Board — Odayam</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Header ── */
+    header {
+      background: #1e293b;
+      padding: 16px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid #334155;
+    }
+    .header-left { display: flex; align-items: center; gap: 12px; }
+    .header-icon {
+      width: 36px; height: 36px;
+      background: #16a34a;
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px; font-weight: 700; color: #fff;
+    }
+    header h1 { font-size: 17px; font-weight: 600; color: #f1f5f9; }
+    header p  { font-size: 12px; color: #64748b; margin-top: 1px; }
+    .conn-badge {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 12px; font-weight: 500; color: #64748b;
+    }
+    .conn-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: #334155; transition: background 0.3s;
+    }
+    .conn-dot.live  { background: #16a34a; }
+    .conn-dot.error { background: #ef4444; }
+
+    /* ── Layout ── */
+    .board {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0;
+    }
+
+    .column {
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .column:first-child { border-right: 1px solid #1e293b; }
+
+    .column-header {
+      display: flex; align-items: center; gap: 8px;
+      margin-bottom: 4px;
+    }
+    .column-title {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .col-due      .column-title { color: #f97316; }
+    .col-upcoming .column-title { color: #94a3b8; }
+    .column-count {
+      background: #1e293b;
+      color: #94a3b8;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 7px;
+      border-radius: 10px;
+      min-width: 20px;
+      text-align: center;
+    }
+    .col-due .column-count { background: #431407; color: #fb923c; }
+
+    /* ── Order cards ── */
+    .order-card {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 14px 16px;
+      transition: border-color 0.2s;
+    }
+    .order-card.due-now {
+      border-color: #ea580c;
+      background: #1c1208;
+      animation: pulse-border 2s ease-in-out infinite;
+    }
+    @keyframes pulse-border {
+      0%, 100% { border-color: #ea580c; }
+      50%       { border-color: #fb923c; }
+    }
+
+    .card-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+    .card-ref {
+      font-size: 13px;
+      font-weight: 700;
+      color: #f1f5f9;
+      letter-spacing: 0.03em;
+    }
+    .card-time {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 8px;
+      border-radius: 6px;
+      white-space: nowrap;
+    }
+    .due-now  .card-time { background: #431407; color: #fb923c; }
+    .upcoming .card-time { background: #0f172a;  color: #64748b; }
+
+    .card-items {
+      list-style: none;
+      margin-bottom: 10px;
+    }
+    .card-items li {
+      font-size: 13px;
+      color: #cbd5e1;
+      padding: 3px 0;
+      border-bottom: 1px solid #0f172a;
+      display: flex;
+      justify-content: space-between;
+    }
+    .card-items li:last-child { border-bottom: none; }
+    .item-qty {
+      font-size: 11px;
+      font-weight: 700;
+      color: #94a3b8;
+      margin-left: 6px;
+    }
+
+    .card-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid #334155;
+    }
+    .card-total {
+      font-size: 14px;
+      font-weight: 700;
+      color: #f1f5f9;
+    }
+    .card-status {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 8px;
+      border-radius: 6px;
+    }
+    .status-paid    { background: #052e16; color: #4ade80; }
+    .status-placed  { background: #1e293b; color: #94a3b8; }
+
+    /* ── Empty state ── */
+    .empty {
+      text-align: center;
+      padding: 40px 20px;
+      color: #334155;
+    }
+    .empty-icon { font-size: 32px; margin-bottom: 10px; }
+    .empty-text { font-size: 13px; }
+
+    /* ── Toast ── */
+    #toast {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%) translateY(80px);
+      background: #ea580c;
+      color: #fff;
+      font-size: 14px;
+      font-weight: 600;
+      padding: 12px 24px;
+      border-radius: 10px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+      transition: transform 0.35s cubic-bezier(.175,.885,.32,1.275);
+      z-index: 999;
+      white-space: nowrap;
+    }
+    #toast.show { transform: translateX(-50%) translateY(0); }
+
+    /* ── Clock ── */
+    #clock {
+      font-size: 12px;
+      color: #475569;
+      font-variant-numeric: tabular-nums;
+    }
+
+    @media (max-width: 640px) {
+      .board { grid-template-columns: 1fr; }
+      .column:first-child { border-right: none; border-bottom: 1px solid #1e293b; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="header-left">
+    <div class="header-icon">O</div>
+    <div>
+      <h1>Kitchen Notice Board</h1>
+      <p>Scheduled orders — live view</p>
+    </div>
+  </div>
+  <div style="display:flex;align-items:center;gap:16px;">
+    <span id="clock"></span>
+    <div class="conn-badge">
+      <div class="conn-dot" id="conn-dot"></div>
+      <span id="conn-label">Connecting…</span>
+    </div>
+  </div>
+</header>
+
+<div class="board">
+  <div class="column col-due">
+    <div class="column-header">
+      <span class="column-title">Due Now</span>
+      <span class="column-count" id="due-count">0</span>
+    </div>
+    <div id="due-list"></div>
+  </div>
+  <div class="column col-upcoming">
+    <div class="column-header">
+      <span class="column-title">Upcoming</span>
+      <span class="column-count" id="upcoming-count">0</span>
+    </div>
+    <div id="upcoming-list"></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+  // ── Clock ──────────────────────────────────────────────────────────────────
+  function updateClock() {
+    document.getElementById('clock').textContent =
+      new Date().toLocaleTimeString('en-CM', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  }
+  updateClock();
+  setInterval(updateClock, 1000);
+
+  // ── Toast ──────────────────────────────────────────────────────────────────
+  let toastTimer;
+  function showToast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.remove('show'), 4000);
+  }
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
+  function fmt(n) {
+    return Number(n).toLocaleString() + ' XAF';
+  }
+
+  function buildCard(order, isDue) {
+    const card = document.createElement('div');
+    card.className = 'order-card ' + (isDue ? 'due-now' : 'upcoming');
+    card.id = 'card-' + order.reference;
+
+    const itemsHtml = (order.items || []).map(it => `
+      <li>
+        <span>${it.itemName}${it.variantLabel ? ' <span style="color:#64748b;font-size:11px;">(${it.variantLabel})</span>' : ''}</span>
+        <span class="item-qty">x${it.quantity}</span>
+      </li>`).join('');
+
+    card.innerHTML = `
+      <div class="card-top">
+        <div class="card-ref">${order.reference}</div>
+        <div class="card-time">${order.scheduledFor || '—'}</div>
+      </div>
+      <ul class="card-items">${itemsHtml}</ul>
+      <div class="card-footer">
+        <div class="card-total">${fmt(order.subtotal)}</div>
+        <div class="card-status ${order.status === 'paid' ? 'status-paid' : 'status-placed'}">
+          ${order.status === 'paid' ? 'Paid' : 'Awaiting payment'}
+        </div>
+      </div>`;
+    return card;
+  }
+
+  function empty(msg) {
+    return `<div class="empty"><div class="empty-icon">—</div><div class="empty-text">${msg}</div></div>`;
+  }
+
+  // ── Render board ───────────────────────────────────────────────────────────
+  let allOrders = [];
+
+  function render() {
+    const now = Date.now();
+    const due      = allOrders.filter(o => o.notified || now >= new Date(o.scheduledAt).getTime());
+    const upcoming = allOrders.filter(o => !o.notified && now  < new Date(o.scheduledAt).getTime());
+
+    const dueList      = document.getElementById('due-list');
+    const upcomingList = document.getElementById('upcoming-list');
+
+    document.getElementById('due-count').textContent      = due.length;
+    document.getElementById('upcoming-count').textContent = upcoming.length;
+
+    dueList.innerHTML = due.length
+      ? ''
+      : empty('No orders due right now');
+    due.forEach(o => dueList.appendChild(buildCard(o, true)));
+
+    upcomingList.innerHTML = upcoming.length
+      ? ''
+      : empty('No upcoming scheduled orders');
+    upcoming.forEach(o => upcomingList.appendChild(buildCard(o, false)));
+  }
+
+  // ── Load initial orders ───────────────────────────────────────────────────
+  fetch('/api/kitchen/orders')
+    .then(r => r.json())
+    .then(orders => { allOrders = orders; render(); })
+    .catch(() => showToast('Could not load orders.'));
+
+  // Re-render every minute to move orders from upcoming → due
+  setInterval(render, 60_000);
+
+  // ── SSE connection ─────────────────────────────────────────────────────────
+  const dot   = document.getElementById('conn-dot');
+  const label = document.getElementById('conn-label');
+
+  function connect() {
+    const es = new EventSource('/api/kitchen/stream');
+
+    es.addEventListener('connected', () => {
+      dot.className   = 'conn-dot live';
+      label.textContent = 'Live';
+    });
+
+    es.addEventListener('order_due', (e) => {
+      const order = JSON.parse(e.data);
+      // Upsert into allOrders
+      const idx = allOrders.findIndex(o => o.reference === order.reference);
+      const entry = { ...order, notified: true, status: order.status || 'paid' };
+      if (idx >= 0) allOrders[idx] = entry;
+      else allOrders.push(entry);
+      render();
+      showToast('Order due: ' + order.reference);
+    });
+
+    es.onerror = () => {
+      dot.className     = 'conn-dot error';
+      label.textContent = 'Reconnecting…';
+      es.close();
+      setTimeout(connect, 5000);
+    };
+  }
+
+  connect();
+</script>
+</body>
+</html>
