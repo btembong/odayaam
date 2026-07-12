@@ -1,21 +1,38 @@
 'use strict';
 
 /**
- * bot.js — conversation FSM
+ * bot.js — conversation finite state machine (FSM)
  *
- * Global shortcuts (work from any step):
- *   1   → Place an order  (BROWSE_CATEGORIES)
- *   99  → Checkout        (place order + payment link)
- *   98  → Order history
- *   97  → Current order
- *   0   → Cancel order    (clear cart / cancel unpaid order)
+ * Every incoming message is interpreted relative to `session.step`.
+ * The FSM shape mirrors USSD/IVR menus: all interaction is numeric, which
+ * means this backend could sit behind an SMS/USSD gateway or WhatsApp Business
+ * webhook with zero changes here.
  *
- * Ordering flow:
- *   MAIN → BROWSE_CATEGORIES → BROWSE_ITEMS
- *        → SELECT_VARIANT (if item has variants)
- *        → SELECT_ADDONS  (if item has addons)
- *        → ENTER_QUANTITY → ITEM_ADDED
- *        (user types 99 to checkout from any of these)
+ * ── State diagram ────────────────────────────────────────────────────────────
+ *
+ *  MAIN
+ *   └─ 1 ──▶ BROWSE_CATEGORIES
+ *              └─ <n> ──▶ BROWSE_ITEMS
+ *                          └─ <n> ──▶ SELECT_VARIANT  (if item has variants)
+ *                                      └─ <n> ──▶ SELECT_ADDONS  (if addons)
+ *                                                  └─ <n|0> ──▶ ENTER_QUANTITY
+ *                                                               └─ <n> ──▶ ITEM_ADDED
+ *   └─ 2 ──▶ VIEW_CART
+ *   └─ 99 ─▶ CHECKOUT_CONFIRM
+ *              └─ 1 ──▶ AWAITING_PAYMENT  (TranZak payment link issued)
+ *              └─ 2 ──▶ SCHEDULE_DATETIME ──▶ AWAITING_PAYMENT
+ *              └─ 3 ──▶ COLLECT_CUSTOMER_INFO ──▶ CHECKOUT_CONFIRM
+ *   └─ 98 ─▶ ORDER_HISTORY
+ *              └─ <n> ─▶ ORDER_DETAIL
+ *   └─ 97 ─▶ (render current order inline, no step change)
+ *   └─ 0  ─▶ CANCEL_CONFIRM ──▶ MAIN (confirmed) | prev step (declined)
+ *
+ * ── Global shortcuts ─────────────────────────────────────────────────────────
+ *   0   → cancel confirm (or back to MAIN if nothing to cancel)
+ *   1   → place an order (BROWSE_CATEGORIES) — excluded mid-flow (see handleMessage)
+ *   97  → current order
+ *   98  → order history
+ *   99  → checkout
  */
 
 const menu = require('./menu');
@@ -284,7 +301,15 @@ function renderCurrentOrder(session) {
 
 // ─── Checkout ─────────────────────────────────────────────────────────────────
 
-// scheduled: null | { label: string, iso: string }
+/**
+ * Convert the session cart into a placed order and request a TranZak payment link.
+ * Mutates `session` in place (clears cart, pushes to orders, advances step).
+ * The caller is responsible for saving the session after this returns.
+ *
+ * @param {object} session
+ * @param {{ label: string, iso: string } | null} scheduled — null for immediate orders
+ * @returns {Promise<{ reply: string, quickReplies: string[], paymentUrl?: string }>}
+ */
 async function doCheckout(session, scheduled = null) {
   const scheduledFor = scheduled ? scheduled.label : null;
   if (session.cart.length === 0) {
@@ -366,6 +391,13 @@ async function doCheckout(session, scheduled = null) {
 
 // ─── Cancel order ─────────────────────────────────────────────────────────────
 
+/**
+ * Clear the cart and cancel the most recent unpaid placed order (if any).
+ * Resets step to MAIN. Mutates session in place.
+ *
+ * @param {object} session
+ * @returns {{ reply: string, quickReplies: string[] }}
+ */
 function doCancel(session) {
   const hadCart = session.cart.length > 0;
   session.cart = [];
@@ -402,11 +434,22 @@ function renderSchedule() {
 
 // ─── Main message handler ─────────────────────────────────────────────────────
 
+/**
+ * Entry point for every chat message. Loads the session, applies global
+ * shortcuts first, then delegates to the per-step switch.
+ * Always saves the session before returning (except early-return shortcuts
+ * which save themselves before returning).
+ *
+ * @param {string} sessionId — UUID from the rc_session cookie
+ * @param {string} text      — raw message text from the customer
+ * @returns {Promise<{ reply: string, quickReplies: string[], paymentUrl?: string }>}
+ */
 async function handleMessage(sessionId, text) {
   const session = await getSession(sessionId);
   const input   = (text || '').trim();
 
   // ── Global shortcuts ──────────────────────────────────────────────────────
+  // These are checked before the step switch so they work from any screen.
   if (input === '0') {
     // In ORDER_DETAIL, 0 goes back to history
     if (session.step === 'ORDER_DETAIL') {
@@ -457,6 +500,9 @@ async function handleMessage(sessionId, text) {
     return renderCheckoutConfirm(session);
   }
 
+  // "1" acts as "Place an order" from MAIN/ITEM_ADDED/AWAITING_PAYMENT, but
+  // must NOT intercept when steps use "1" for their own numbered options
+  // (e.g. SELECT_VARIANT option 1, VIEW_CART item removal, etc.).
   if (input === '1' && session.step !== 'SELECT_VARIANT' && session.step !== 'SELECT_ADDONS'
                      && session.step !== 'ENTER_QUANTITY' && session.step !== 'BROWSE_ITEMS'
                      && session.step !== 'VIEW_CART' && session.step !== 'CHECKOUT_CONFIRM'
@@ -804,6 +850,13 @@ async function handleMessage(sessionId, text) {
   return result;
 }
 
+/**
+ * Return the MAIN menu screen for a session (used on first page load).
+ * Creates a blank session if this is the customer's first visit.
+ *
+ * @param {string} sessionId
+ * @returns {Promise<{ reply: string, quickReplies: string[] }>}
+ */
 async function getWelcome(sessionId) {
   const session = await getSession(sessionId);
   return renderMain(session);

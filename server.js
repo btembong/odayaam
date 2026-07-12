@@ -1,5 +1,28 @@
 'use strict';
 
+/**
+ * server.js — Express HTTP server
+ *
+ * Routes:
+ *   GET  /api/session/init        — return MAIN menu for a new/returning session
+ *   POST /api/chat                — main FSM message handler
+ *   GET  /api/session/stream      — SSE: real-time payment confirmation to browser
+ *   POST /api/session/reset       — reset step to MAIN (called by frontend after SSE)
+ *   GET  /api/payment/callback    — browser redirect from TranZak (UX only)
+ *   POST /api/payment/webhook     — TranZak server-to-server notification (authoritative)
+ *   GET  /api/kitchen/orders      — all scheduled orders for initial board load
+ *   GET  /api/kitchen/stream      — SSE: real-time kitchen notice board updates
+ *
+ * Payment confirmation flow:
+ *   1. Customer pays on TranZak hosted checkout.
+ *   2. TranZak POSTs to /api/payment/webhook (server-to-server, source of truth).
+ *   3. Webhook re-verifies with TranZak, marks order paid, pushes SSE to browser.
+ *   4. Browser redirect hits /api/payment/callback (UX only — not authoritative).
+ *
+ * Connects to MongoDB before starting the HTTP listener. If the DB connection
+ * fails the process exits so the host (Render) restarts it.
+ */
+
 require('dotenv').config();
 
 const express      = require('express');
@@ -16,7 +39,10 @@ const emitter = require('./emitter');
 const app  = express();
 const PORT = process.env.PORT || 3000;
 
-// ── SSE client registries ──────────────────────────────────────────────────────
+// ── SSE client registries ─────────────────────────────────────────────────────
+// Each open browser tab holds a long-lived HTTP response object.
+// When a payment webhook arrives, we look up the matching session's response
+// and push a `payment_confirmed` event — no polling required.
 const sseClients     = new Map(); // sessionId → res  (customer payment confirmations)
 const kitchenClients = new Set(); // res[]             (kitchen notice board connections)
 
@@ -137,8 +163,11 @@ app.get('/api/payment/callback', async (req, res) => {
 });
 
 // Payment webhook — TranZak server-to-server notification (source of truth)
+// express.raw() is used instead of express.json() because TranZak may send
+// a Content-Type that doesn't match `application/json`. We parse manually.
 app.post('/api/payment/webhook', express.raw({ type: '*/*' }), async (req, res) => {
-  // Always respond 200 immediately so TranZak stops retrying on network hiccups
+  // Respond 200 immediately — TranZak retries on any non-2xx, so we must
+  // acknowledge receipt before doing any async work.
   res.status(200).json({ received: true });
 
   try {
@@ -158,7 +187,9 @@ app.post('/api/payment/webhook', express.raw({ type: '*/*' }), async (req, res) 
       const order = session.orders.find(o => o.reference === merchantRef && o.status === 'placed');
       if (!order) continue;
 
-      // Re-verify with TranZak before trusting the webhook (idempotency + security)
+      // Re-verify directly with TranZak before marking paid.
+      // This guards against spoofed webhook calls and makes the handler idempotent
+      // (safe to call multiple times for the same transaction).
       try {
         const { paid } = await verifyTransaction(transactionId || order.transactionId);
         if (paid) {

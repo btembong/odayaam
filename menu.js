@@ -1,5 +1,22 @@
 'use strict';
 
+/**
+ * menu.js — static restaurant catalog
+ *
+ * Pure data module. No I/O, no side effects. All prices are in XAF.
+ *
+ * Item shape:
+ *   { id, categoryId, name, description, variants[], addons[], price? }
+ *
+ *   - variants: size/option choices (e.g. Small / Large). If non-empty, the
+ *     variant price is used and the top-level `price` field is absent.
+ *   - addons: optional extras added on top of the base/variant price.
+ *   - price: flat price for items with no variants.
+ *
+ * To add a menu item: push to `items` with a unique `id` and matching `categoryId`.
+ * To add a category: push to `categories` with a unique `id`.
+ */
+
 const categories = [
   { id: 1, name: 'Soups & Starters' },
   { id: 2, name: 'Main Dishes' },
@@ -193,18 +210,22 @@ const items = [
   },
 ];
 
+/** @returns {{ id: number, name: string }[]} all categories */
 function getCategories() {
   return categories;
 }
 
+/** @param {number} id @returns {{ id: number, name: string } | undefined} */
 function getCategory(id) {
   return categories.find(c => c.id === id);
 }
 
+/** @param {number} categoryId @returns {object[]} items in that category */
 function getItemsByCategory(categoryId) {
   return items.filter(i => i.categoryId === categoryId);
 }
 
+/** @param {number} id @returns {object | undefined} */
 function getItem(id) {
   return items.find(i => i.id === id);
 }

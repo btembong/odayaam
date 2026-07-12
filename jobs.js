@@ -1,5 +1,23 @@
 'use strict';
 
+/**
+ * jobs.js — background cron jobs
+ *
+ * Three recurring tasks run in-process using node-cron. They re-derive all
+ * required state from MongoDB on every tick, so they are safe across restarts.
+ *
+ *   Payment reconciliation  (every 5 min)
+ *     Safety net for missed webhooks. Re-verifies any order still "placed"
+ *     after 5 minutes directly against TranZak.
+ *
+ *   Scheduled-order sweep   (every 1 min)
+ *     Checks whether any paid scheduled order is now due. Emits an event to
+ *     the kitchen notice board via the shared EventEmitter.
+ *
+ *   Stale-session cleanup   (daily at midnight)
+ *     Marks sessions idle for >30 days as expired to keep the collection lean.
+ */
+
 const cron = require('node-cron');
 const { getAllSessions, saveSession } = require('./db');
 const { verifyTransaction } = require('./tranzak');
