@@ -403,7 +403,7 @@ function renderSchedule() {
 // ─── Main message handler ─────────────────────────────────────────────────────
 
 async function handleMessage(sessionId, text) {
-  const session = getSession(sessionId);
+  const session = await getSession(sessionId);
   const input   = (text || '').trim();
 
   // ── Global shortcuts ──────────────────────────────────────────────────────
@@ -411,19 +411,19 @@ async function handleMessage(sessionId, text) {
     // In ORDER_DETAIL, 0 goes back to history
     if (session.step === 'ORDER_DETAIL') {
       session.step = 'ORDER_HISTORY';
-      saveSession(session);
+      await saveSession(session);
       return renderOrderHistory(session);
     }
     // Nothing to cancel — just go home
     if (session.cart.length === 0 && !session.orders?.some(o => o.status === 'placed')) {
       session.step = 'MAIN';
-      saveSession(session);
+      await saveSession(session);
       return renderMain(session);
     }
     // Ask for confirmation before cancelling
     session.context.prevStep = session.step;
     session.step = 'CANCEL_CONFIRM';
-    saveSession(session);
+    await saveSession(session);
     return {
       reply: [
         'Are you sure you want to cancel?',
@@ -437,23 +437,23 @@ async function handleMessage(sessionId, text) {
   }
 
   if (input === '97') {
-    saveSession(session);
+    await saveSession(session);
     return renderCurrentOrder(session);
   }
 
   if (input === '98') {
     session.step = 'ORDER_HISTORY';
-    saveSession(session);
+    await saveSession(session);
     return renderOrderHistory(session);
   }
 
   if (input === '99') {
     if (session.cart.length === 0) {
-      saveSession(session);
+      await saveSession(session);
       return { reply: 'Your cart is empty.\n\n1. Place an order', quickReplies: ['1. Place an order'] };
     }
     session.step = 'CHECKOUT_CONFIRM';
-    saveSession(session);
+    await saveSession(session);
     return renderCheckoutConfirm(session);
   }
 
@@ -465,13 +465,13 @@ async function handleMessage(sessionId, text) {
     // "1" as "Place an order" shortcut (not consumed mid-flow or in cart)
     session.step    = 'BROWSE_CATEGORIES';
     session.context = {};
-    saveSession(session);
+    await saveSession(session);
     return renderCategories();
   }
 
   if (input === '2' && session.step === 'MAIN') {
     session.step = 'VIEW_CART';
-    saveSession(session);
+    await saveSession(session);
     return renderCart(session);
   }
 
@@ -769,7 +769,7 @@ async function handleMessage(sessionId, text) {
       if (input === '0') {
         // Skip scheduling — checkout immediately
         const r = await doCheckout(session);
-        saveSession(session);
+        await saveSession(session);
         return r;
       }
       const match = input.match(/^(\d{1,2})\/(\d{1,2})\s+(\d{1,2}):(\d{2})$/);
@@ -804,8 +804,8 @@ async function handleMessage(sessionId, text) {
   return result;
 }
 
-function getWelcome(sessionId) {
-  const session = getSession(sessionId);
+async function getWelcome(sessionId) {
+  const session = await getSession(sessionId);
   return renderMain(session);
 }
 

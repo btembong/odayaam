@@ -11,7 +11,7 @@ function startJobs() {
   // Catches cases where the webhook was missed (network blip, deploy timing).
   cron.schedule('*/5 * * * *', async () => {
     try {
-      const sessions = getAllSessions();
+      const sessions = await getAllSessions();
       for (const session of sessions) {
         if (!session.orders) continue;
         for (const order of session.orders) {
@@ -25,7 +25,7 @@ function startJobs() {
             const { paid } = await verifyTransaction(order.transactionId);
             if (paid) {
               order.status = 'paid';
-              saveSession(session);
+              await saveSession(session);
               console.log(`[reconciliation] Order ${order.reference} marked paid.`);
             }
           } catch (err) {
@@ -40,9 +40,9 @@ function startJobs() {
 
   // ── Scheduled-order sweep (every 1 min) ───────────────────────────────────
   // Find paid orders whose scheduledAt time has arrived; emit to kitchen board.
-  cron.schedule('* * * * *', () => {
+  cron.schedule('* * * * *', async () => {
     try {
-      const sessions = getAllSessions();
+      const sessions = await getAllSessions();
       const now = Date.now();
       for (const session of sessions) {
         if (!session.orders) continue;
@@ -53,7 +53,7 @@ function startJobs() {
           if (now < due) continue; // not yet
 
           order.notified = true;
-          saveSession(session);
+          await saveSession(session);
 
           console.log(`[scheduled] Order ${order.reference} is due — notifying kitchen.`);
           emitter.emit('kitchen:order_due', {
@@ -71,9 +71,9 @@ function startJobs() {
   });
 
   // ── Stale-session cleanup (daily at midnight) ─────────────────────────────
-  cron.schedule('0 0 * * *', () => {
+  cron.schedule('0 0 * * *', async () => {
     try {
-      const sessions = getAllSessions();
+      const sessions = await getAllSessions();
       const cutoffMs = 30 * 24 * 60 * 60 * 1000; // 30 days
       let cleaned = 0;
       for (const session of sessions) {
@@ -81,7 +81,7 @@ function startJobs() {
         if (age > cutoffMs && session.cart.length === 0 && (!session.orders || session.orders.every(o => o.status !== 'placed'))) {
           // Mark as expired (a real implementation would delete from db)
           session.expired = true;
-          saveSession(session);
+          await saveSession(session);
           cleaned++;
         }
       }

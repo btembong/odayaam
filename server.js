@@ -8,7 +8,7 @@ const path         = require('path');
 const { v4: uuidv4 } = require('uuid');
 
 const { handleMessage, getWelcome } = require('./bot');
-const { getSession, saveSession, getAllSessions } = require('./db');
+const { connect, getSession, saveSession, getAllSessions } = require('./db');
 const { verifyTransaction } = require('./tranzak');
 const { startJobs } = require('./jobs');
 const emitter = require('./emitter');
@@ -55,9 +55,9 @@ function ensureSessionId(req, res) {
 // ── Routes ────────────────────────────────────────────────────────────────────
 
 // Initial welcome message
-app.get('/api/session/init', (req, res) => {
+app.get('/api/session/init', async (req, res) => {
   const sessionId = ensureSessionId(req, res);
-  res.json(getWelcome(sessionId));
+  res.json(await getWelcome(sessionId));
 });
 
 // Chat message
@@ -110,7 +110,7 @@ app.get('/api/payment/callback', async (req, res) => {
 
   if (ref && sessionId) {
     try {
-      const session = getSession(sessionId);
+      const session = await getSession(sessionId);
       const order   = session.orders?.find(o => o.reference === ref);
       if (order) {
         if (order.status === 'paid') {
@@ -122,7 +122,7 @@ app.get('/api/payment/callback', async (req, res) => {
             order.status    = 'paid';
             session.step    = 'MAIN';
             session.context = {};
-            saveSession(session);
+            await saveSession(session);
             pushSSE(sessionId, 'payment_confirmed', { reference: order.reference, amount: order.subtotal });
             flag = 'success';
           }
@@ -152,7 +152,7 @@ app.post('/api/payment/webhook', express.raw({ type: '*/*' }), async (req, res) 
     if (webhookStatus !== 'SUCCESSFUL') return;
 
     // Find the matching order across all sessions
-    const sessions = getAllSessions();
+    const sessions = await getAllSessions();
     for (const session of sessions) {
       if (!session.orders) continue;
       const order = session.orders.find(o => o.reference === merchantRef && o.status === 'placed');
@@ -165,7 +165,7 @@ app.post('/api/payment/webhook', express.raw({ type: '*/*' }), async (req, res) 
           order.status    = 'paid';
           session.step    = 'MAIN';
           session.context = {};
-          saveSession(session);
+          await saveSession(session);
           console.log(`[webhook] Order ${order.reference} marked paid.`);
 
           // Push real-time confirmation to any open browser tab for this session
@@ -186,21 +186,21 @@ app.post('/api/payment/webhook', express.raw({ type: '*/*' }), async (req, res) 
 });
 
 // Session step reset — called by frontend after payment_confirmed SSE
-app.post('/api/session/reset', (req, res) => {
+app.post('/api/session/reset', async (req, res) => {
   const sessionId = req.cookies.rc_session;
   if (!sessionId) return res.status(401).end();
-  const session   = getSession(sessionId);
+  const session   = await getSession(sessionId);
   session.step    = 'MAIN';
   session.context = {};
-  saveSession(session);
+  await saveSession(session);
   res.json({ ok: true });
 });
 
 // ── Kitchen notice board ──────────────────────────────────────────────────────
 
 // All scheduled orders (paid, with a scheduledAt) — for initial board load
-app.get('/api/kitchen/orders', (req, res) => {
-  const sessions = getAllSessions();
+app.get('/api/kitchen/orders', async (req, res) => {
+  const sessions = await getAllSessions();
   const orders = [];
   const now = Date.now();
   for (const session of sessions) {
@@ -241,7 +241,13 @@ app.get('/api/kitchen/stream', (req, res) => {
 });
 
 // ── Start ─────────────────────────────────────────────────────────────────────
-startJobs();
-app.listen(PORT, () => {
-  console.log(`Odayam running → http://localhost:${PORT}`);
-});
+connect()
+  .then(() => {
+    console.log('MongoDB connected.');
+    startJobs();
+    app.listen(PORT, () => console.log(`Odayam running → http://localhost:${PORT}`));
+  })
+  .catch(err => {
+    console.error('MongoDB connection failed:', err.message);
+    process.exit(1);
+  });

@@ -1,44 +1,55 @@
 'use strict';
 
-const fs   = require('fs');
-const path = require('path');
+const { MongoClient } = require('mongodb');
 
-const DB_PATH = path.join(__dirname, 'data', 'db.json');
+const MONGODB_URI = process.env.MONGODB_URI;
+const DB_NAME     = process.env.MONGODB_DB || 'odayam';
 
-function readDB() {
-  return JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
+let _client = null;
+let _db     = null;
+
+async function connect() {
+  if (_db) return _db;
+  _client = new MongoClient(MONGODB_URI);
+  await _client.connect();
+  _db = _client.db(DB_NAME);
+  // Ensure index on id field for fast lookups
+  await _db.collection('sessions').createIndex({ id: 1 }, { unique: true });
+  return _db;
 }
 
-function writeDB(data) {
-  fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
-}
-
-function getSession(id) {
-  const db = readDB();
-  if (!db.sessions[id]) {
-    db.sessions[id] = {
+async function getSession(id) {
+  const db  = await connect();
+  const col = db.collection('sessions');
+  let session = await col.findOne({ id }, { projection: { _id: 0 } });
+  if (!session) {
+    session = {
       id,
-      step: 'MAIN',
-      context: {},
-      cart: [],
-      orders: [],
+      step:      'MAIN',
+      context:   {},
+      cart:      [],
+      orders:    [],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
-    writeDB(db);
+    await col.insertOne({ ...session });
   }
-  return db.sessions[id];
+  return session;
 }
 
-function saveSession(session) {
-  const db = readDB();
+async function saveSession(session) {
+  const db  = await connect();
   session.updatedAt = new Date().toISOString();
-  db.sessions[session.id] = session;
-  writeDB(db);
+  await db.collection('sessions').updateOne(
+    { id: session.id },
+    { $set: session },
+    { upsert: true }
+  );
 }
 
-function getAllSessions() {
-  return Object.values(readDB().sessions);
+async function getAllSessions() {
+  const db = await connect();
+  return db.collection('sessions').find({}, { projection: { _id: 0 } }).toArray();
 }
 
-module.exports = { getSession, saveSession, getAllSessions };
+module.exports = { connect, getSession, saveSession, getAllSessions };
